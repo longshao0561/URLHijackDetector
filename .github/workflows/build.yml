@@ -1,11 +1,10 @@
-# .github/workflows/build.yml
 name: Build URLHijackDetector
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -13,31 +12,38 @@ jobs:
     runs-on: macos-latest
     
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
-    - name: Get Xcode version
-      run: xcodebuild -version
+    - name: Install iOS SDK
+      run: |
+        sudo xcode-select -switch /Applications/Xcode.app
+        xcodebuild -version
+        xcrun --sdk iphoneos --show-sdk-path
     
     - name: Build dylib
       run: |
         make clean
         make
     
-    - name: Upload artifact
-      uses: actions/upload-artifact@v3
+    - name: Verify build
+      run: |
+        file URLHijackDetector.dylib
+        otool -L URLHijackDetector.dylib
+        nm -gU URLHijackDetector.dylib
+    
+    - name: Upload dylib
+      uses: actions/upload-artifact@v4
       with:
         name: URLHijackDetector
         path: |
           URLHijackDetector.dylib
-          URLHijackDetector.plist
-          inject.sh
           README.md
+          inject.sh
     
-    - name: Create release
+    - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          URLHijackDetector.dylib
-          URLHijackDetector.plist
-          inject.sh
+        files: URLHijackDetector.dylib
+        tag_name: ${{ github.ref_name }}
+        name: Release ${{ github.ref_name }}
