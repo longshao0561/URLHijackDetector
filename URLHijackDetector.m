@@ -84,43 +84,6 @@ static NSString* replaceURL(NSString *originalURLString) {
 
 @end
 
-#pragma mark - NSURLConnection Hook
-
-@interface NSURLConnection (Hijack)
-@end
-
-@implementation NSURLConnection (Hijack)
-
-+ (void)load {
-    Class class = objc_getClass("NSURLConnection");
-    if (!class) return;
-    
-    SEL originalSelector = @selector(sendAsynchronousRequest:queue:completionHandler:);
-    Method originalMethod = class_getClassMethod(class, originalSelector);
-    
-    if (!originalMethod) return;
-    
-    IMP originalImp = method_getImplementation(originalMethod);
-    
-    IMP newImp = imp_implementationWithBlock(^(id _self, NSURLRequest *request, NSOperationQueue *queue, void (^handler)(NSURLResponse*, NSData*, NSError*)) {
-        NSString *newURLString = replaceURL(request.URL.absoluteString);
-        
-        if (![newURLString isEqualToString:request.URL.absoluteString]) {
-            NSMutableURLRequest *newRequest = [request mutableCopy];
-            [newRequest setURL:[NSURL URLWithString:newURLString]];
-            request = newRequest;
-        }
-        
-        void (*originalFunc)(id, SEL, NSURLRequest*, NSOperationQueue*, void (^)(NSURLResponse*, NSData*, NSError*));
-        originalFunc = (void *)originalImp;
-        originalFunc(_self, originalSelector, request, queue, handler);
-    });
-    
-    class_replaceMethod(class, originalSelector, newImp, method_getTypeEncoding(originalMethod));
-}
-
-@end
-
 __attribute__((constructor))
 static void initialize() {
     // 静默加载
