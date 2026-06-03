@@ -1,24 +1,20 @@
 // URLHijackDetector.m
-// iOS URL Hijack Dylib
+// iOS URL Hijack Dylib - 域名匹配版
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 
 #pragma mark - 配置区
 
-static NSSet<NSString *> *getTargetURLs(void) {
+// 需要劫持的目标域名
+static NSSet<NSString *> *getTargetDomains(void) {
     return [NSSet setWithArray:@[
-        @"http://api1.7ccccccc.com/v1/card/login",
-        @"http://api1.7ccccccc.com/v1/card/heartbeat",
-        @"http://api1.7ccccccc.com/v1/card/logout",
-        @"http://api2.7ccccccc.com/v1/card/login",
-        @"http://api2.7ccccccc.com/v1/card/heartbeat",
-        @"http://api2.7ccccccc.com/v1/card/logout",
-        @"http://api3.7ccccccc.com/v1/card/login",
-        @"http://api3.7ccccccc.com/v1/card/heartbeat",
-        @"http://api3.7ccccccc.com/v1/card/logout"
+        @"api1.7ccccccc.com",
+        @"api2.7ccccccc.com",
+        @"api3.7ccccccc.com"
     ]];
 }
 
+// 劫持后重定向的新域名
 static NSString *getNewDomain(void) {
     return @"api123.hezijun.top";
 }
@@ -26,12 +22,20 @@ static NSString *getNewDomain(void) {
 #pragma mark - URL 匹配与替换
 
 static NSString* replaceURL(NSString *originalURLString) {
-    if ([getTargetURLs() containsObject:originalURLString]) {
-        NSURL *url = [NSURL URLWithString:originalURLString];
-        NSString *path = url.path;
-        NSString *scheme = url.scheme ?: @"http";
-        return [NSString stringWithFormat:@"%@://%@%@", scheme, getNewDomain(), path];
+    NSURL *url = [NSURL URLWithString:originalURLString];
+    if (!url) return originalURLString;
+    
+    NSString *host = url.host;
+    if (!host) return originalURLString;
+    
+    // 精确匹配域名
+    if ([getTargetDomains() containsObject:host]) {
+        // 替换域名，保留完整路径、参数、锚点
+        NSString *newURLString = [originalURLString stringByReplacingOccurrencesOfString:host 
+                                                                               withString:getNewDomain()];
+        return newURLString;
     }
+    
     return originalURLString;
 }
 
