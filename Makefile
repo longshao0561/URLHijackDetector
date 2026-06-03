@@ -1,13 +1,12 @@
 NAME = URLHijackDetector
 IOS_SDK = $(shell xcrun --sdk iphoneos --show-sdk-path)
 IOS_VERSION_MIN = 12.0
-ARCHS = arm64 arm64e
+ARCHS = arm64
 
 CC = clang
 CFLAGS = -dynamiclib
 CFLAGS += $(addprefix -arch ,$(ARCHS))
 CFLAGS += -framework Foundation
-CFLAGS += -framework ObjectiveC
 CFLAGS += -framework CFNetwork
 CFLAGS += -miphoneos-version-min=$(IOS_VERSION_MIN)
 CFLAGS += -isysroot $(IOS_SDK)
@@ -33,7 +32,4 @@ $(NAME).dylib: $(NAME).m
 clean:
 	rm -f $(NAME).dylib
 
-install: $(NAME).dylib
-	scp $< root@localhost:/Library/MobileSubstrate/DynamicLibraries/
-
-.PHONY: all clean install
+.PHONY: all clean
