@@ -1,7 +1,8 @@
 // URLHijackDetector.m
-// iOS URL Hijack Dylib - 域名仅改appKey，IP做重定向+改appKey
+// iOS URL Hijack Dylib - 支持重新计算签名
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
+#import <CommonCrypto/CommonDigest.h>
 
 #pragma mark - 配置区
 
@@ -11,55 +12,122 @@ static NSSet<NSString *> *getTargetDomains(void) {
         @"api1.7ccccccc.com",
         @"api2.7ccccccc.com", 
         @"api3.7ccccccc.com",
-        @"45.205.27.82:8080"   // IP需要重定向
+        @"45.205.27.82:8080"
     ]];
 }
 
-// 需要重定向的IP列表（仅IP需要重定向到新域名）
+// 需要重定向的IP列表
 static NSSet<NSString *> *getRedirectIPs(void) {
     return [NSSet setWithArray:@[
         @"45.205.27.82:8080"
     ]];
 }
 
-// 劫持后重定向的新域名（仅对IP生效）
+// 劫持后重定向的新域名
 static NSString *getNewDomain(void) {
     return @"api123.hezijun.top";
 }
 
+// appSecret
+static NSString *getAppSecret(void) {
+    return @"XtUdpwzWVW1wAbTeSDWevcBJXFJGY2cx";
+}
+
+#pragma mark - 加密工具函数
+
+static NSString* md5(NSString *string) {
+    const char *cStr = [string UTF8String];
+    unsigned char digest[CC_MD5_DIGEST_LENGTH];
+    CC_MD5(cStr, (CC_LONG)strlen(cStr), digest);
+    
+    NSMutableString *output = [NSMutableString stringWithCapacity:CC_MD5_DIGEST_LENGTH * 2];
+    for(int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {
+        [output appendFormat:@"%02x", digest[i]];
+    }
+    return output;
+}
+
+#pragma mark - 签名计算
+
+static NSString* calculateSign(NSString *httpMethod, NSString *host, NSString *path, NSDictionary *params, NSString *appSecret) {
+    // 1. 参数排序并拼接 (k1=v1&k2=v2&kn=vn)
+    NSArray *sortedKeys = [[params allKeys] sortedArrayUsingSelector:@selector(compare:)];
+    NSMutableString *paramString = [NSMutableString string];
+    for (NSString *key in sortedKeys) {
+        if ([key isEqualToString:@"sign"]) continue; // 跳过原签名
+        if (paramString.length > 0) {
+            [paramString appendString:@"&"];
+        }
+        [paramString appendFormat:@"%@=%@", key, params[key]];
+    }
+    
+    // 2. 拼接签名原串: httpMethod + host + path + 参数 + appSecret
+    NSString *stringToSign = [NSString stringWithFormat:@"%@%@%@%@%@", 
+                               httpMethod, host, path, paramString, appSecret];
+    
+    NSLog(@"[Hijack] String to sign: %@", stringToSign);
+    
+    // 3. MD5
+    return md5(stringToSign);
+}
+
 #pragma mark - 请求参数修改
 
-static NSData* modifyRequestBody(NSData *originalBody, NSString *originalURL) {
+static NSData* modifyRequestBody(NSData *originalBody, NSString *originalURL, NSString *httpMethod, NSString *host, NSString *path) {
     if (!originalBody) return originalBody;
     
     NSString *bodyString = [[NSString alloc] initWithData:originalBody encoding:NSUTF8StringEncoding];
     if (!bodyString) return originalBody;
     
-    // 原 appKey 值
-    NSString *oldAppKey = @"LWtAvVixXX39mGYL2w";
-    // 新 appKey 值
-    NSString *newAppKey = @"QLObIPwnDOVts3mzw9";
-    
-    // 在 body 中替换 appKey
-    NSString *newBodyString = [bodyString stringByReplacingOccurrencesOfString:oldAppKey 
-                                                                     withString:newAppKey];
-    
-    if ([newBodyString isEqualToString:bodyString]) {
-        return originalBody; // 没有变化，返回原数据
+    // 解析参数
+    NSMutableDictionary *params = [NSMutableDictionary dictionary];
+    NSArray *pairs = [bodyString componentsSeparatedByString:@"&"];
+    for (NSString *pair in pairs) {
+        NSArray *kv = [pair componentsSeparatedByString:@"="];
+        if (kv.count == 2) {
+            params[kv[0]] = kv[1];
+        }
     }
     
-    NSLog(@"[Hijack] AppKey replaced in request body for: %@", originalURL);
-    return [newBodyString dataUsingEncoding:NSUTF8StringEncoding];
+    // 替换 appKey
+    NSString *oldAppKey = @"LWtAvVixXX39mGYL2w";
+    NSString *newAppKey = @"QLObIPwnDOVts3mzw9";
+    
+    if ([params[@"appKey"] isEqualToString:oldAppKey]) {
+        NSLog(@"[Hijack] Replacing appKey: %@ -> %@", oldAppKey, newAppKey);
+        params[@"appKey"] = newAppKey;
+        
+        // 重新计算签名
+        NSString *newSign = calculateSign(httpMethod, host, path, params, getAppSecret());
+        params[@"sign"] = newSign;
+        
+        NSLog(@"[Hijack] New sign: %@", newSign);
+        
+        // 重新构建 body
+        NSMutableArray *newPairs = [NSMutableArray array];
+        for (NSString *key in params) {
+            [newPairs addObject:[NSString stringWithFormat:@"%@=%@", key, params[key]]];
+        }
+        NSString *newBodyString = [newPairs componentsJoinedByString:@"&"];
+        
+        return [newBodyString dataUsingEncoding:NSUTF8StringEncoding];
+    }
+    
+    return originalBody;
 }
 
 #pragma mark - URL 匹配与替换
 
-static NSString* replaceURLIfNeeded(NSString *originalURLString) {
+static NSString* replaceURLIfNeeded(NSString *originalURLString, NSString **outHost, NSString **outPath) {
     NSURL *url = [NSURL URLWithString:originalURLString];
     if (!url) return originalURLString;
     
     NSString *host = url.host;
     if (!host) return originalURLString;
+    
+    // 保存原始 host 和 path
+    if (outHost) *outHost = host;
+    if (outPath) *outPath = url.path;
     
     // 处理带端口的 host
     NSString *hostWithPort = nil;
@@ -67,7 +135,7 @@ static NSString* replaceURLIfNeeded(NSString *originalURLString) {
         hostWithPort = [NSString stringWithFormat:@"%@:%@", host, url.port];
     }
     
-    // 检查是否需要重定向（仅IP需要重定向）
+    // 检查是否需要重定向
     BOOL needsRedirect = NO;
     if (hostWithPort && [getRedirectIPs() containsObject:hostWithPort]) {
         needsRedirect = YES;
@@ -76,28 +144,27 @@ static NSString* replaceURLIfNeeded(NSString *originalURLString) {
     }
     
     if (needsRedirect) {
-        // 替换为新域名，保留原路径
+        // 替换为新域名
         NSString *newURLString = originalURLString;
-        
-        // 替换 host（IP 地址）
         newURLString = [newURLString stringByReplacingOccurrencesOfString:host 
                                                                withString:getNewDomain()];
-        // 去掉端口（新域名默认 80/443）
         if (url.port) {
             NSString *oldPortStr = [NSString stringWithFormat:@":%d", [url.port intValue]];
             newURLString = [newURLString stringByReplacingOccurrencesOfString:oldPortStr 
                                                                    withString:@""];
         }
         
+        // 更新 host 为新的域名
+        if (outHost) *outHost = getNewDomain();
+        
         NSLog(@"[Hijack] URL redirected: %@ -> %@", originalURLString, newURLString);
         return newURLString;
     }
     
-    // 域名不做重定向，直接返回原 URL
     return originalURLString;
 }
 
-// 检查请求是否需要处理（域名或IP是否在目标列表中）
+// 检查请求是否需要处理
 static BOOL isTargetRequest(NSString *urlString) {
     NSURL *url = [NSURL URLWithString:urlString];
     if (!url) return NO;
@@ -105,12 +172,10 @@ static BOOL isTargetRequest(NSString *urlString) {
     NSString *host = url.host;
     if (!host) return NO;
     
-    // 检查域名（不带端口）
     if ([getTargetDomains() containsObject:host]) {
         return YES;
     }
     
-    // 检查 IP:端口
     if (url.port) {
         NSString *hostWithPort = [NSString stringWithFormat:@"%@:%@", host, url.port];
         if ([getTargetDomains() containsObject:hostWithPort]) {
@@ -133,7 +198,6 @@ static BOOL isTargetRequest(NSString *urlString) {
     dispatch_once(&onceToken, ^{
         Class class = [NSURLSession class];
         
-        // Hook dataTaskWithRequest:completionHandler:
         SEL originalSelector = @selector(dataTaskWithRequest:completionHandler:);
         SEL swizzledSelector = @selector(hijacked_dataTaskWithRequest:completionHandler:);
         
@@ -165,19 +229,26 @@ static BOOL isTargetRequest(NSString *urlString) {
     // 检查是否是目标请求
     if (isTargetRequest(originalURLString)) {
         
-        // 1. 处理 URL 重定向（仅IP需要）
-        NSString *newURLString = replaceURLIfNeeded(originalURLString);
+        NSString *host = nil;
+        NSString *path = nil;
+        
+        // 1. 处理 URL 重定向
+        NSString *newURLString = replaceURLIfNeeded(originalURLString, &host, &path);
         if (![newURLString isEqualToString:originalURLString]) {
             [mutableRequest setURL:[NSURL URLWithString:newURLString]];
             modified = YES;
+        } else {
+            // 获取原始 host 和 path
+            NSURL *url = [NSURL URLWithString:originalURLString];
+            host = url.host;
+            path = url.path;
         }
         
-        // 2. 修改请求体中的 appKey（所有目标请求都需要）
+        // 2. 修改请求体中的 appKey 并重新计算签名
         if ([request.HTTPMethod isEqualToString:@"POST"] && request.HTTPBody) {
-            NSData *newBody = modifyRequestBody(request.HTTPBody, originalURLString);
+            NSData *newBody = modifyRequestBody(request.HTTPBody, originalURLString, request.HTTPMethod, host, path);
             if (newBody != request.HTTPBody) {
                 [mutableRequest setHTTPBody:newBody];
-                // 更新 Content-Length header
                 [mutableRequest setValue:[NSString stringWithFormat:@"%lu", (unsigned long)newBody.length] 
                       forHTTPHeaderField:@"Content-Length"];
                 modified = YES;
@@ -185,12 +256,10 @@ static BOOL isTargetRequest(NSString *urlString) {
         }
     }
     
-    // 如果没有任何修改，直接调用原方法
     if (!modified) {
         return [self hijacked_dataTaskWithRequest:request completionHandler:completionHandler];
     }
     
-    // 使用修改后的请求
     return [self hijacked_dataTaskWithRequest:mutableRequest completionHandler:completionHandler];
 }
 
@@ -198,5 +267,8 @@ static BOOL isTargetRequest(NSString *urlString) {
 
 __attribute__((constructor))
 static void initialize() {
-    NSLog(@"[Hijack] URL Hijack Detector loaded - 域名改AppKey模式 | IP重定向+改AppKey模式");
+    NSLog(@"[Hijack] URL Hijack Detector loaded - 签名重算模式已启用");
+    NSLog(@"[Hijack] AppSecret: XtUdpwzWVW1wAbTeSDWevcBJXFJGY2cx");
+    NSLog(@"[Hijack] 目标域名: api1/2/3.7ccccccc.com (仅改appKey)");
+    NSLog(@"[Hijack] 目标IP: 45.205.27.82:8080 (重定向+改appKey)");
 }
