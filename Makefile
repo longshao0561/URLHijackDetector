@@ -1,4 +1,3 @@
-# Makefile
 NAME = URLHijackDetector
 IOS_SDK = $(shell xcrun --sdk iphoneos --show-sdk-path)
 IOS_VERSION_MIN = 12.0
@@ -13,22 +12,28 @@ CFLAGS += -framework CFNetwork
 CFLAGS += -miphoneos-version-min=$(IOS_VERSION_MIN)
 CFLAGS += -isysroot $(IOS_SDK)
 CFLAGS += -O2 -Wall -fobjc-arc
-CFLAGS += -D__IPHONE_OS_VERSION_MIN_REQUIRED=120000
+CFLAGS += -fvisibility=hidden
 
 all: $(NAME).dylib
 
 $(NAME).dylib: $(NAME).m
-	@echo "Building for iOS $(IOS_VERSION_MIN)..."
+	@echo "=========================================="
+	@echo "Building URLHijackDetector"
+	@echo "=========================================="
+	@echo "SDK: $(IOS_SDK)"
+	@echo "Archs: $(ARCHS)"
+	@echo "Min Version: $(IOS_VERSION_MIN)"
+	@echo "------------------------------------------"
 	$(CC) $(CFLAGS) -o $@ $<
+	@echo "------------------------------------------"
 	@echo "Build complete: $@"
 	@file $@
+	@echo "=========================================="
 
 clean:
 	rm -f $(NAME).dylib
 
-info:
-	@echo "SDK: $(IOS_SDK)"
-	@echo "Archs: $(ARCHS)"
-	@echo "Min Version: $(IOS_VERSION_MIN)"
+install: $(NAME).dylib
+	scp $< root@localhost:/Library/MobileSubstrate/DynamicLibraries/
 
-.PHONY: all clean info
+.PHONY: all clean install
