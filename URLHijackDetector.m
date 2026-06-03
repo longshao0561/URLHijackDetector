@@ -5,12 +5,13 @@
 
 #pragma mark - 配置区
 
-// 需要劫持的目标域名
+// 需要劫持的目标域名/IP
 static NSSet<NSString *> *getTargetDomains(void) {
     return [NSSet setWithArray:@[
         @"api1.7ccccccc.com",
         @"api2.7ccccccc.com",
-        @"api3.7ccccccc.com"
+        @"api3.7ccccccc.com",
+        @"45.205.27.82:8080"  // 新增 IP 劫持
     ]];
 }
 
@@ -28,11 +29,29 @@ static NSString* replaceURL(NSString *originalURLString) {
     NSString *host = url.host;
     if (!host) return originalURLString;
     
-    // 精确匹配域名
-    if ([getTargetDomains() containsObject:host]) {
-        // 替换域名，保留完整路径、参数、锚点
-        NSString *newURLString = [originalURLString stringByReplacingOccurrencesOfString:host 
-                                                                               withString:getNewDomain()];
+    // 处理带端口的 host
+    NSString *hostWithPort = nil;
+    if (url.port) {
+        hostWithPort = [NSString stringWithFormat:@"%@:%@", host, url.port];
+    }
+    
+    // 精确匹配域名或 IP:端口
+    if ([getTargetDomains() containsObject:host] || 
+        (hostWithPort && [getTargetDomains() containsObject:hostWithPort])) {
+        
+        // 替换为新域名，保留原端口和路径
+        NSString *newURLString = originalURLString;
+        
+        // 替换 host
+        newURLString = [newURLString stringByReplacingOccurrencesOfString:host 
+                                                               withString:getNewDomain()];
+        // 如果原 URL 带端口，去掉端口（新域名默认 80/443）
+        if (url.port) {
+            NSString *oldPortStr = [NSString stringWithFormat:@":%d", [url.port intValue]];
+            newURLString = [newURLString stringByReplacingOccurrencesOfString:oldPortStr 
+                                                                   withString:@""];
+        }
+        
         return newURLString;
     }
     
