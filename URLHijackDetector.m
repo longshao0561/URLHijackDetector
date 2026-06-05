@@ -30,7 +30,17 @@ static NSString *getNewDomain(void) {
 
 // appSecret
 static NSString *getAppSecret(void) {
-    return @"MRS1Wlm9H8op1TOUT9etXEckdCugaI2L";
+    return @"XtUdpwzWVW1wAbTeSDWevcBJXFJGY2cx";
+}
+
+// appKey 替换规则：支持多个旧 appKey 映射到对应的新 appKey
+static NSArray<NSDictionary *>* getAppKeyRules(void) {
+    return @[
+        @{@"old": @"LWtAvVixXX39mGYL2w", @"new": @"QLObIPwnDOVts3mzw9"},
+        @{@"old": @"QfYi2U28vFdYrhjxQF", @"new": @"QLObIPwnDOVts3mzw9"},  // 替换成相同的目标 appKey
+        // 可以继续添加更多规则
+        // @{@"old": @"oldAppKey3", @"new": @"newAppKey3"},
+    ];
 }
 
 #pragma mark - 加密工具函数
@@ -89,28 +99,39 @@ static NSData* modifyRequestBody(NSData *originalBody, NSString *originalURL, NS
         }
     }
     
-    // 替换 appKey
-    NSString *oldAppKey = @"LWtAvVixXX39mGYL2w";
-    NSString *newAppKey = @"niHybpheNidDb7ZtHE";
-    
-    if ([params[@"appKey"] isEqualToString:oldAppKey]) {
-        NSLog(@"[Hijack] Replacing appKey: %@ -> %@", oldAppKey, newAppKey);
-        params[@"appKey"] = newAppKey;
+    // 获取当前的 appKey
+    NSString *currentAppKey = params[@"appKey"];
+    if (currentAppKey) {
+        // 遍历替换规则，查找是否需要替换
+        NSString *newAppKey = nil;
+        NSArray *rules = getAppKeyRules();
         
-        // 重新计算签名
-        NSString *newSign = calculateSign(httpMethod, host, path, params, getAppSecret());
-        params[@"sign"] = newSign;
-        
-        NSLog(@"[Hijack] New sign: %@", newSign);
-        
-        // 重新构建 body
-        NSMutableArray *newPairs = [NSMutableArray array];
-        for (NSString *key in params) {
-            [newPairs addObject:[NSString stringWithFormat:@"%@=%@", key, params[key]]];
+        for (NSDictionary *rule in rules) {
+            if ([rule[@"old"] isEqualToString:currentAppKey]) {
+                newAppKey = rule[@"new"];
+                break;
+            }
         }
-        NSString *newBodyString = [newPairs componentsJoinedByString:@"&"];
         
-        return [newBodyString dataUsingEncoding:NSUTF8StringEncoding];
+        if (newAppKey) {
+            NSLog(@"[Hijack] Replacing appKey: %@ -> %@", currentAppKey, newAppKey);
+            params[@"appKey"] = newAppKey;
+            
+            // 重新计算签名
+            NSString *newSign = calculateSign(httpMethod, host, path, params, getAppSecret());
+            params[@"sign"] = newSign;
+            
+            NSLog(@"[Hijack] New sign: %@", newSign);
+            
+            // 重新构建 body
+            NSMutableArray *newPairs = [NSMutableArray array];
+            for (NSString *key in params) {
+                [newPairs addObject:[NSString stringWithFormat:@"%@=%@", key, params[key]]];
+            }
+            NSString *newBodyString = [newPairs componentsJoinedByString:@"&"];
+            
+            return [newBodyString dataUsingEncoding:NSUTF8StringEncoding];
+        }
     }
     
     return originalBody;
@@ -268,7 +289,13 @@ static BOOL isTargetRequest(NSString *urlString) {
 __attribute__((constructor))
 static void initialize() {
     NSLog(@"[Hijack] URL Hijack Detector loaded - 签名重算模式已启用");
-    NSLog(@"[Hijack] AppSecret: MRS1Wlm9H8op1TOUT9etXEckdCugaI2L");
+    NSLog(@"[Hijack] AppSecret: %@", getAppSecret());
     NSLog(@"[Hijack] 目标域名: api1/2/3.7ccccccc.com (仅改appKey)");
     NSLog(@"[Hijack] 目标IP: 45.205.27.82:8080 (重定向+改appKey)");
+    
+    // 打印 appKey 替换规则
+    NSArray *rules = getAppKeyRules();
+    for (NSDictionary *rule in rules) {
+        NSLog(@"[Hijack] appKey替换规则: %@ -> %@", rule[@"old"], rule[@"new"]);
+    }
 }
