@@ -25,12 +25,12 @@ static NSSet<NSString *> *getRedirectIPs(void) {
 
 // 劫持后重定向的新域名
 static NSString *getNewDomain(void) {
-    return @"api123.hezijun.top";
+    return @"api12.hezijun.top";
 }
 
 // appSecret
 static NSString *getAppSecret(void) {
-    return @"isIkwRtGuTn3N14qKw7rDRGZuo25nfq5";
+    return @"MRS1Wlm9H8op1TOUT9etXEckdCugaI2L";
 }
 
 #pragma mark - 加密工具函数
@@ -91,7 +91,7 @@ static NSData* modifyRequestBody(NSData *originalBody, NSString *originalURL, NS
     
     // 替换 appKey
     NSString *oldAppKey = @"LWtAvVixXX39mGYL2w";
-    NSString *newAppKey = @"IbTyERzJ65fufR4EN5";
+    NSString *newAppKey = @"niHybpheNidDb7ZtHE";
     
     if ([params[@"appKey"] isEqualToString:oldAppKey]) {
         NSLog(@"[Hijack] Replacing appKey: %@ -> %@", oldAppKey, newAppKey);
@@ -268,7 +268,7 @@ static BOOL isTargetRequest(NSString *urlString) {
 __attribute__((constructor))
 static void initialize() {
     NSLog(@"[Hijack] URL Hijack Detector loaded - 签名重算模式已启用");
-    NSLog(@"[Hijack] AppSecret: XtUdpwzWVW1wAbTeSDWevcBJXFJGY2cx");
+    NSLog(@"[Hijack] AppSecret: MRS1Wlm9H8op1TOUT9etXEckdCugaI2L");
     NSLog(@"[Hijack] 目标域名: api1/2/3.7ccccccc.com (仅改appKey)");
     NSLog(@"[Hijack] 目标IP: 45.205.27.82:8080 (重定向+改appKey)");
 }
