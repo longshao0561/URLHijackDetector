@@ -25,7 +25,7 @@ static NSSet<NSString *> *getRedirectIPs(void) {
 
 // 劫持后重定向的新域名
 static NSString *getNewDomain(void) {
-    return @"43.139.221.5:5566";
+    return @"101.200.86.213:5563";
 }
 
 // appSecret
