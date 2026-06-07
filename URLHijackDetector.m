@@ -25,19 +25,19 @@ static NSSet<NSString *> *getRedirectIPs(void) {
 
 // 劫持后重定向的新域名
 static NSString *getNewDomain(void) {
-    return @"61.184.8.198:5562";
+    return @"61.184.8.198:5563";
 }
 
 // appSecret
 static NSString *getAppSecret(void) {
-    return @"XtUdpwzWVW1wAbTeSDWevcBJXFJGY2cx";
+    return @"MRS1Wlm9H8op1TOUT9etXEckdCugaI2L";
 }
 
 // appKey 替换规则
 static NSArray<NSDictionary *>* getAppKeyRules(void) {
     return @[
-        @{@"old": @"LWtAvVixXX39mGYL2w", @"new": @"QLObIPwnDOVts3mzw9"},
-        @{@"old": @"QfYi2U28vFdYrhjxQF", @"new": @"QLObIPwnDOVts3mzw9"},
+        @{@"old": @"LWtAvVixXX39mGYL2w", @"new": @"niHybpheNidDb7ZtHE"},
+        @{@"old": @"QfYi2U28vFdYrhjxQF", @"new": @"niHybpheNidDb7ZtHE"},
     ];
 }
 
