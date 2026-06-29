@@ -36,8 +36,8 @@ static NSString *getAppSecret(void) {
 // appKey 替换规则
 static NSArray<NSDictionary *>* getAppKeyRules(void) {
     return @[
-        @{@"old": @"LWtAvVixXX39mGYL2w", @"new": @"niHybpheNidDb7ZtHE"},
-        @{@"old": @"QfYi2U28vFdYrhjxQF", @"new": @"niHybpheNidDb7ZtHE"},
+        @{@"old": @"LWtAvVixXX39mGYL2w", @"new": @"QLObIPwnDOVts3mzw9"},
+        @{@"old": @"veQ3NZZ5ui0jyBrQaT", @"new": @"QLObIPwnDOVts3mzw9"},
     ];
 }
 
