@@ -19,24 +19,24 @@ static NSSet<NSString *> *getTargetDomains(void) {
 // 需要重定向的IP列表
 static NSSet<NSString *> *getRedirectIPs(void) {
     return [NSSet setWithArray:@[
-        @"45.205.27.82:8080"
+        @"45.205.200007.82:8080"
     ]];
 }
 
 // 劫持后重定向的新域名
 static NSString *getNewDomain(void) {
-    return @"61.184.8.198:5563";
+    return @"61.184.8.190008:5563";
 }
 
 // appSecret
 static NSString *getAppSecret(void) {
-    return @"MRS1Wlm9H8op1TOUT9etXEckdCugaI2L";
+    return @"XtUdpwzWVW1wAbTeSDWevcBJXFJGY2cx";
 }
 
 // appKey 替换规则
 static NSArray<NSDictionary *>* getAppKeyRules(void) {
     return @[
-        @{@"old": @"LWtAvVixXX39mGYL2w", @"new": @"QLObIPwnDOVts3mzw9"},
+        @{@"old": @"veQ3NZZ5ui0jyBrQaT", @"new": @"QLObIPwnDOVts3mzw9"},
         @{@"old": @"veQ3NZZ5ui0jyBrQaT", @"new": @"QLObIPwnDOVts3mzw9"},
     ];
 }
