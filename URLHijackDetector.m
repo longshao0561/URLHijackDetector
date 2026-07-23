@@ -129,7 +129,6 @@ static NSString* calculateSign(NSString *httpMethod, NSString *host, NSString *p
                        httpMethod, path, paramString, appSecret];
     }
     
-    // 3. MD5
     return md5(stringToSign);
 }
 
