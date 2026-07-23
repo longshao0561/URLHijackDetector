@@ -1,5 +1,5 @@
 // URLHijackDetector.m
-// iOS URL Hijack Dylib - 支持签名重算和卡密提取（修复版）
+// iOS URL Hijack Dylib - 统一使用 params={}
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <CommonCrypto/CommonDigest.h>
@@ -134,7 +134,7 @@ static NSString* calculateSign(NSString *httpMethod, NSString *host, NSString *p
 
 #pragma mark - 请求参数修改
 
-// 从URL或Body中提取参数 - 保持原始值，绝不解码
+// 从URL或Body中提取参数
 static NSMutableDictionary* extractParamsFromRequest(NSData *body, NSString *urlString) {
     NSMutableDictionary *params = [NSMutableDictionary dictionary];
     
@@ -148,7 +148,6 @@ static NSMutableDictionary* extractParamsFromRequest(NSData *body, NSString *url
                 if (range.location != NSNotFound) {
                     NSString *key = [pair substringToIndex:range.location];
                     NSString *value = [pair substringFromIndex:range.location + 1];
-                    // 保持原始值，绝不解码
                     params[key] = value ?: @"";
                 }
             }
@@ -162,7 +161,6 @@ static NSMutableDictionary* extractParamsFromRequest(NSData *body, NSString *url
             NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
             for (NSURLQueryItem *item in components.queryItems) {
                 if (!params[item.name]) {
-                    // 保持原始值
                     params[item.name] = item.value ?: @"";
                 }
             }
@@ -172,7 +170,7 @@ static NSMutableDictionary* extractParamsFromRequest(NSData *body, NSString *url
     return params;
 }
 
-// 构建新的请求体 - 使用原始值，不做任何编码
+// 构建新的请求体
 static NSData* buildRequestBodyFromParams(NSDictionary *params) {
     if (!params || params.count == 0) return nil;
     
@@ -193,9 +191,9 @@ static NSData* buildRequestBodyFromParams(NSDictionary *params) {
     return [bodyString dataUsingEncoding:NSUTF8StringEncoding];
 }
 
-// 处理原始 API 请求
+// 处理原始 API 请求 - 统一使用 params={}
 static NSData* modifyRequestBodyForOriginalApi(NSData *originalBody, NSString *originalURL, NSString *httpMethod, NSString *host, NSString *path) {
-    // 提取所有参数（保持原始值）
+    // 提取所有参数
     NSMutableDictionary *params = extractParamsFromRequest(originalBody, originalURL);
     if (params.count == 0) return originalBody;
     
@@ -205,6 +203,12 @@ static NSData* modifyRequestBodyForOriginalApi(NSData *originalBody, NSString *o
     
     if (card || deviceId) {
         saveParamsToStorage(card, deviceId);
+    }
+    
+    // ★★★ 关键修改：强制统一使用 params={} ★★★
+    // 不管原始请求中 params 是 %7B%7D 还是 {}，都统一替换为 {}
+    if (params[@"params"]) {
+        params[@"params"] = @"{}";
     }
     
     // 替换 appKey
@@ -223,7 +227,7 @@ static NSData* modifyRequestBodyForOriginalApi(NSData *originalBody, NSString *o
         if (newAppKey) {
             params[@"appKey"] = newAppKey;
             
-            // 重新计算签名
+            // 重新计算签名（使用 params={}）
             NSString *newSign = calculateSign(httpMethod, host, path, params, getAppSecret());
             if (newSign && newSign.length > 0) {
                 params[@"sign"] = newSign;
