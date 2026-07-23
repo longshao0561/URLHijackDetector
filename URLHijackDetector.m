@@ -11,7 +11,7 @@
 static NSDictionary<NSString *, NSString *> *getRedirectMapping(void) {
     return @{
         // 域名替换为域名（不带端口）
-        @"api1.keyumjan.cn": @"api1.newdomain.com",
+        @"api1.keyumjan.cn": @"ma.hezijun.top",
         
         // IP替换为IP（带端口）
         @"45.205.27.82:8080": @"61.184.8.198:5563",
