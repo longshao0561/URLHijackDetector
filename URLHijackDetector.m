@@ -12,7 +12,7 @@ static NSSet<NSString *> *getTargetDomains(void) {
         @"api1.7ccccccc.com",
         @"api2.7ccccccc.com", 
         @"api3.7ccccccc.com",
-        @"api1.keyumjan.cn",  // 新增域名
+        @"api1.keyumjan.cn",
         @"45.205.27.82:8080"
     ]];
 }
@@ -21,7 +21,7 @@ static NSSet<NSString *> *getTargetDomains(void) {
 static NSSet<NSString *> *getRedirectTargets(void) {
     return [NSSet setWithArray:@[
         @"45.205.27.82:8080",
-        @"api1.keyumjan.cn"   // 新增：劫持此域名
+        @"api1.keyumjan.cn"
     ]];
 }
 
@@ -41,6 +41,13 @@ static NSArray<NSDictionary *>* getAppKeyRules(void) {
         @{@"old": @"LWtAvVixXX39mGYL2w", @"new": @"QLObIPwnDOVts3mzw9"},
         @{@"old": @"veQ3NZZ5ui0jyBrQaT", @"new": @"QLObIPwnDOVts3mzw9"},
     ];
+}
+
+// 需要保持 URL 编码的参数（签名时不能解码）
+static NSSet<NSString *> *getEncodedParams(void) {
+    return [NSSet setWithArray:@[
+        @"params"
+    ]];
 }
 
 #pragma mark - 持久化存储管理
@@ -94,7 +101,7 @@ static NSString* md5(NSString *string) {
     return output;
 }
 
-#pragma mark - 签名计算（修复版）
+#pragma mark - 签名计算（修复版 - 保持 params 编码状态）
 
 static NSString* calculateSign(NSString *httpMethod, NSString *host, NSString *path, NSDictionary *params, NSString *appSecret) {
     if (!params) return @"";
@@ -106,6 +113,9 @@ static NSString* calculateSign(NSString *httpMethod, NSString *host, NSString *p
     NSArray *sortedKeys = [[params allKeys] sortedArrayUsingSelector:@selector(compare:)];
     NSMutableString *paramString = [NSMutableString string];
     
+    // 获取需要保持编码的参数列表
+    NSSet *encodedParams = getEncodedParams();
+    
     for (NSString *key in sortedKeys) {
         if ([key isEqualToString:@"sign"]) continue;
         
@@ -114,6 +124,9 @@ static NSString* calculateSign(NSString *httpMethod, NSString *host, NSString *p
         }
         
         NSString *value = params[key] ?: @"";
+        
+        // 对于 params 参数，保持原样（已经是 URL 编码）
+        // 不要进行任何解码操作
         [paramString appendFormat:@"%@=%@", key, value];
     }
     
@@ -136,7 +149,7 @@ static NSString* calculateSign(NSString *httpMethod, NSString *host, NSString *p
 
 #pragma mark - 请求参数修改
 
-// 从URL或Body中提取参数
+// 从URL或Body中提取参数（保持原始值，不做解码）
 static NSMutableDictionary* extractParamsFromRequest(NSData *body, NSString *urlString) {
     NSMutableDictionary *params = [NSMutableDictionary dictionary];
     
@@ -148,6 +161,7 @@ static NSMutableDictionary* extractParamsFromRequest(NSData *body, NSString *url
             for (NSString *pair in pairs) {
                 NSArray *kv = [pair componentsSeparatedByString:@"="];
                 if (kv.count == 2) {
+                    // 保持原始值，不做任何解码
                     params[kv[0]] = kv[1];
                 }
             }
@@ -161,6 +175,7 @@ static NSMutableDictionary* extractParamsFromRequest(NSData *body, NSString *url
             NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
             for (NSURLQueryItem *item in components.queryItems) {
                 if (!params[item.name]) {
+                    // 保持原始值
                     params[item.name] = item.value ?: @"";
                 }
             }
@@ -170,7 +185,7 @@ static NSMutableDictionary* extractParamsFromRequest(NSData *body, NSString *url
     return params;
 }
 
-// 构建新的请求体
+// 构建新的请求体（保持参数原样）
 static NSData* buildRequestBodyFromParams(NSDictionary *params) {
     if (!params || params.count == 0) return nil;
     
@@ -195,7 +210,7 @@ static NSData* buildRequestBodyFromParams(NSDictionary *params) {
 
 // 处理原始 API 请求（修复版）
 static NSData* modifyRequestBodyForOriginalApi(NSData *originalBody, NSString *originalURL, NSString *httpMethod, NSString *host, NSString *path) {
-    // 提取所有参数
+    // 提取所有参数（保持原始值）
     NSMutableDictionary *params = extractParamsFromRequest(originalBody, originalURL);
     if (params.count == 0) return originalBody;
     
@@ -207,7 +222,7 @@ static NSData* modifyRequestBodyForOriginalApi(NSData *originalBody, NSString *o
         saveParamsToStorage(card, deviceId);
     }
     
-    // 替换 appKey
+    // 检查是否需要替换 appKey
     NSString *currentAppKey = params[@"appKey"];
     if (currentAppKey) {
         NSString *newAppKey = nil;
@@ -221,9 +236,13 @@ static NSData* modifyRequestBodyForOriginalApi(NSData *originalBody, NSString *o
         }
         
         if (newAppKey) {
+            // 替换 appKey
             params[@"appKey"] = newAppKey;
             
-            // 重新计算签名（使用新的 appKey）
+            // 重要：确保 params 参数保持 URL 编码状态
+            // extractParamsFromRequest 已经保持了原始值，所以 %7B%7D 不会被解码
+            
+            // 重新计算签名
             NSString *newSign = calculateSign(httpMethod, host, path, params, getAppSecret());
             if (newSign && newSign.length > 0) {
                 params[@"sign"] = newSign;
@@ -268,7 +287,6 @@ static NSData* modifyRequestBodyForNewApi(NSData *originalBody, NSString *origin
         
         // 如果有修改，重新构建请求体（不重算签名）
         if (modified) {
-            // 注意：这里不重算签名，保持原样
             NSData *newBody = buildRequestBodyFromParams(params);
             if (newBody) {
                 return newBody;
@@ -293,13 +311,11 @@ static NSString* replaceURLIfNeeded(NSString *originalURLString, NSString **outH
     
     // 检查是否需要重定向
     BOOL needsRedirect = NO;
-    NSString *redirectTarget = nil;
     
     // 检查 host 是否在重定向列表中
     for (NSString *target in getRedirectTargets()) {
         if ([host isEqualToString:target]) {
             needsRedirect = YES;
-            redirectTarget = target;
             break;
         }
         
@@ -308,7 +324,6 @@ static NSString* replaceURLIfNeeded(NSString *originalURLString, NSString **outH
             NSString *hostWithPort = [NSString stringWithFormat:@"%@:%@", host, url.port];
             if ([hostWithPort isEqualToString:target]) {
                 needsRedirect = YES;
-                redirectTarget = target;
                 break;
             }
         }
