@@ -14,7 +14,7 @@ static NSDictionary<NSString *, NSString *> *getRedirectMapping(void) {
         @"api1.keyumjan.cn": @"ma.hezijun.top",
         
         // IP替换为IP（带端口）
-        @"45.205.27.82:8080": @"61.184.8.198:5563",
+        @"45.205.27.82000:8080": @"61.184.8.198:5563",
         
         // 可以继续添加更多映射，例如：
         // @"api2.old.com": @"api2.new.com",
