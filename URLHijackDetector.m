@@ -14,8 +14,8 @@ static NSDictionary<NSString *, NSString *> *getRedirectMapping(void) {
         @"api1.keyumjan.cn": @"ma.hezijun.top",
         
         // IP替换为IP（带端口）
-        @"45.205.27.82:8080": @"61.184.5.139:5563",
-        @"45.205.27.47:8088": @"61.184.5.139:5563",
+        @"45.205.27.82:8080": @"61.184.5.139:5567",
+        @"45.205.27.47:8088": @"61.184.5.139:5567",
         
         // 可以继续添加更多映射，例如：
         // @"api2.old.com": @"api2.new.com",
@@ -43,14 +43,14 @@ static NSSet<NSString *> *getRedirectTargets(void) {
 
 // appSecret
 static NSString *getAppSecret(void) {
-    return @"MRS1Wlm9H8op1TOUT9etXEckdCugaI2L";
+    return @"mqIBdF0iDg3Kxz3F48AonpixWEde2MaP";
 }
 
 // appKey 替换规则
 static NSArray<NSDictionary *>* getAppKeyRules(void) {
     return @[
-        @{@"old": @"LWtAvVixXX39mGYL2w", @"new": @"niHybpheNidDb7ZtHE"},
-        @{@"old": @"veQ3NZZ5ui0jyBrQaT", @"new": @"niHybpheNidDb7ZtHE"},
+        @{@"old": @"LWtAvVixXX39mGYL2w", @"new": @"G3Vq7bJZ4ggUeOurYG"},
+        @{@"old": @"veQ3NZZ5ui0jyBrQaT", @"new": @"G3Vq7bJZ4ggUeOurYG"},
     ];
 }
 
