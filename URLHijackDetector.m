@@ -32,6 +32,7 @@ static NSSet<NSString *> *getTargetDomains(void) {
         @"api1.7ccccccc.com",
         @"api2.7ccccccc.com", 
         @"api3.7ccccccc.com",
+        @"b.hezijun.top",
     ]];
     // 添加映射规则中的所有原始地址
     [domains addObjectsFromArray:[getRedirectMapping() allKeys]];
